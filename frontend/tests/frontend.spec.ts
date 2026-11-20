@@ -9,24 +9,27 @@ async function login(page: Page, account = "S0001") {
 test("学生登录、201 选课、202 候补、课表、退课与放弃候补", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "登录选课系统" })).toBeVisible();
+  await page.screenshot({ path: "test-results/login-desktop.png", fullPage: true });
   await login(page);
   await expect(page.locator(".course-card")).toHaveCount(9);
-  await page.screenshot({
-    path: "test-results/hall-desktop.png",
-    fullPage: true,
-  });
   await page
     .locator(".course-card")
     .filter({ hasText: "高级数据库系统" })
-    .getByRole("button")
+    .getByRole("button", { name: "选择课程", exact: true })
     .click();
   await expect(page.getByRole("status")).toContainText("已选中");
   await page
     .locator(".course-card")
     .filter({ hasText: "机器学习" })
-    .getByRole("button")
+    .getByRole("button", { name: "加入候补", exact: true })
     .click();
   await expect(page.getByRole("status")).toContainText("当前第 4 位");
+  await page.screenshot({
+    path: "test-results/hall-desktop.png",
+    fullPage: true,
+  });
   await page.getByRole("link", { name: "每周课表", exact: true }).click();
   await expect(page.locator(".timetable-course")).toContainText(
     "高级数据库系统",
@@ -48,6 +51,45 @@ test("学生登录、201 选课、202 候补、课表、退课与放弃候补", 
   await expect(page.locator(".course-card")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("选课单规划、列表视图、学业概览与通知中心", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await login(page);
+  await page.getByRole("button", { name: "通知公告" }).click();
+  await expect(page.locator(".notice-dropdown")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // 收藏两门课进选课单，再切换列表视图检查
+  await page
+    .locator(".course-card")
+    .filter({ hasText: "高级数据库系统" })
+    .getByRole("button", { name: "加入选课单" })
+    .click();
+  await page
+    .locator(".course-card")
+    .filter({ hasText: "分布式系统" })
+    .getByRole("button", { name: "加入选课单" })
+    .click();
+
+  await page.getByRole("button", { name: "列表", exact: true }).click();
+  await expect(page.locator(".list-table tbody tr")).toHaveCount(9);
+  await page.getByRole("button", { name: "卡片", exact: true }).click();
+
+  await page.getByRole("link", { name: /选课单/ }).first().click();
+  await expect(page).toHaveURL(/\/cart$/);
+  await expect(page.locator(".cart-card")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/cart-desktop.png", fullPage: true });
+
+  await page.getByRole("button", { name: /一键提交/ }).click();
+  await expect(page.getByRole("status")).toContainText("2 门选课成功");
+
+  await page.getByRole("link", { name: "学业概览", exact: true }).click();
+  await expect(page.locator(".ring-label strong")).toHaveText("7");
+  await page.screenshot({ path: "test-results/overview-desktop.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("搜索、分页、无结果、移动端和登录恢复", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "下一页" }).click();

@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { api } from "../api";
 import { errorMessage } from "../api/client";
 import type { Course, Section, Roster, Meeting } from "../api/types";
-import { meetingText, dateText } from "./format";
+import Icon from "./widgets/Icon.vue";
+import { TERM } from "./config";
+import { dateText, fillLevel, meetingText } from "./format";
+
 const tab = ref<"courses" | "sections">("courses"),
   courses = ref<Course[]>([]),
   sections = ref<Section[]>([]),
@@ -14,7 +17,7 @@ const tab = ref<"courses" | "sections">("courses"),
   error = ref(""),
   message = ref("");
 const keyword = ref(""),
-  term = ref("2026-FALL"),
+  term = ref(TERM.code),
   archived = ref(false),
   editing = ref<"course" | "section">(),
   editId = ref<number>(),
@@ -23,6 +26,7 @@ const keyword = ref(""),
   rosterPage = ref(1),
   rosterTotal = ref(0),
   selectionOpen = ref<boolean>();
+
 const courseForm = reactive({
   code: "",
   name: "",
@@ -32,11 +36,19 @@ const courseForm = reactive({
 });
 const sectionForm = reactive({
   course_id: 1,
-  term: "2026-FALL",
+  term: TERM.code,
   teacher: "",
   capacity: 60,
   meetings: [{ weekday: 1, start_period: 1, end_period: 2 }] as Meeting[],
 });
+
+const sectionSummary = computed(() => {
+  const enrolled = sections.value.reduce((s, x) => s + x.enrolled_count, 0);
+  const cap = sections.value.reduce((s, x) => s + x.capacity, 0);
+  const wait = sections.value.reduce((s, x) => s + x.waitlist_count, 0);
+  return { enrolled, cap, wait };
+});
+
 async function load() {
   loading.value = true;
   error.value = "";
@@ -72,6 +84,7 @@ function switchTab(value: "courses" | "sections") {
   void load();
 }
 function editCourse(course?: Course) {
+  error.value = "";
   editId.value = course?.id;
   Object.assign(courseForm, {
     code: course?.code || "",
@@ -83,6 +96,7 @@ function editCourse(course?: Course) {
   editing.value = "course";
 }
 function editSection(section?: Section) {
+  error.value = "";
   editId.value = section?.id;
   Object.assign(sectionForm, {
     course_id: section?.course.id || 1,
@@ -185,74 +199,129 @@ async function exportCsv(id: number) {
     busy.value = false;
   }
 }
-onMounted(load);
+onMounted(async () => {
+  void load();
+  try {
+    const data = await api.adminSections({ term: term.value, page: 1, size: 20 });
+    sections.value = data.items;
+    selectionOpen.value = data.items[0]?.selection_open;
+  } catch {
+    // 忽略预加载状态错误
+  }
+});
 </script>
 <template>
   <div class="page-heading">
     <div>
       <p class="eyebrow">ACADEMIC AFFAIRS</p>
       <h1>教务管理</h1>
-      <p class="muted">维护课程与教学班，管理选课开放阶段。</p>
+      <p class="muted">维护课程目录与教学班排期，控制全校选课开放阶段。</p>
     </div>
-    <div class="actions">
-      <span class="badge">{{
-        selectionOpen === undefined
-          ? "开放状态待查询"
-          : selectionOpen
-            ? "选课已开放"
-            : "选课已关闭"
-      }}</span
-      ><button :disabled="busy" @click="setSelection(true)">开放选课</button
-      ><button class="danger" :disabled="busy" @click="setSelection(false)">
+    <div class="selection-ctrl">
+      <span
+        class="badge"
+        :class="
+          selectionOpen === undefined ? '' : selectionOpen ? 'green' : 'red'
+        "
+      >
+        <Icon :name="selectionOpen ? 'unlock' : 'lock'" :size="14" />
+        {{
+          selectionOpen === undefined
+            ? "开放状态待查询"
+            : selectionOpen
+              ? "选课已开放"
+              : "选课已关闭"
+        }}
+      </span>
+      <button :disabled="busy" @click="setSelection(true)">开放选课</button>
+      <button class="danger" :disabled="busy" @click="setSelection(false)">
         关闭选课
       </button>
     </div>
   </div>
-  <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-  <p v-if="message" role="status" class="notice success">{{ message }}</p>
+
+  <div class="stat-strip">
+    <div class="stat-tile">
+      <span>当前视图记录</span>
+      <strong>{{ total }} <small>条</small></strong>
+    </div>
+    <div class="stat-tile">
+      <span>学期教学班</span>
+      <strong>{{ sections.length }} <small>个</small></strong>
+    </div>
+    <div class="stat-tile">
+      <span>已选人次 / 总容量</span>
+      <strong>{{ sectionSummary.enrolled }} <small>/ {{ sectionSummary.cap }}</small></strong>
+    </div>
+    <div class="stat-tile">
+      <span>候补队列人数</span>
+      <strong>{{ sectionSummary.wait }} <small>人</small></strong>
+    </div>
+  </div>
+
+  <p v-if="error && !editing" role="alert" class="notice error">{{ error }}</p>
+  <p v-if="message" role="status" class="notice success">
+    <Icon name="check-circle" />{{ message }}
+  </p>
+
   <div class="tabs">
     <button
       :class="{ active: tab === 'courses' }"
       @click="switchTab('courses')"
     >
-      课程管理</button
-    ><button
+      <Icon name="book" :size="16" />课程管理
+    </button>
+    <button
       :class="{ active: tab === 'sections' }"
       @click="switchTab('sections')"
     >
-      教学班管理
+      <Icon name="layers" :size="16" />教学班管理
     </button>
   </div>
+
   <form
-    class="filters"
+    class="filter-panel inline-form"
     @submit.prevent="
       page = 1;
       load();
     "
   >
-    <template v-if="tab === 'courses'"
-      ><input
-        v-model="keyword"
-        aria-label="课程关键词"
-        placeholder="课程名 / 课程号"
-      /><label class="inline"
-        ><input v-model="archived" type="checkbox" />已归档课程</label
-      ></template
-    ><input
-      v-else
-      v-model="term"
-      aria-label="学期"
-      required
-      placeholder="学期"
-    /><button :disabled="loading">查询</button
-    ><button
-      class="primary"
-      type="button"
-      @click="tab === 'courses' ? editCourse() : editSection()"
-    >
-      {{ tab === "courses" ? "新建课程" : "新建教学班" }}
-    </button>
+    <div class="filters">
+      <template v-if="tab === 'courses'">
+        <div class="input-wrap grow">
+          <Icon name="search" />
+          <input
+            v-model="keyword"
+            aria-label="课程关键词"
+            placeholder="搜索课程名 / 课程号"
+          />
+        </div>
+        <label class="switch">
+          <input v-model="archived" type="checkbox" /><span></span>已归档课程
+        </label>
+      </template>
+      <input
+        v-else
+        v-model="term"
+        aria-label="学期"
+        required
+        placeholder="学期，如 2026-FALL"
+        class="narrow"
+      />
+      <button :disabled="loading">
+        <Icon name="search" :size="15" />查询
+      </button>
+      <button
+        class="primary"
+        type="button"
+        @click="tab === 'courses' ? editCourse() : editSection()"
+      >
+        <Icon name="plus" :size="16" />
+        {{ tab === "courses" ? "新建课程" : "新建教学班" }}
+      </button>
+    </div>
   </form>
+
   <p v-if="loading" class="empty">加载中…</p>
   <div v-else class="panel table-wrap">
     <table v-if="tab === 'courses'">
@@ -269,13 +338,22 @@ onMounted(load);
       <tbody>
         <tr v-for="c in courses" :key="c.id">
           <td>
-            {{ c.code }}<small>ID {{ c.id }}</small>
+            <span class="course-code">{{ c.code }}</span>
+            <small>ID {{ c.id }}</small>
           </td>
-          <td>{{ c.name }}</td>
-          <td>{{ c.dept }}</td>
-          <td>{{ c.credits }}</td>
-          <td>{{ c.archived ? "已归档" : "正常" }}</td>
-          <td><button @click="editCourse(c)">编辑</button></td>
+          <td><strong>{{ c.name }}</strong></td>
+          <td><span class="tag">{{ c.dept }}</span></td>
+          <td>{{ c.credits }} 学分</td>
+          <td>
+            <span class="badge" :class="c.archived ? '' : 'green'">
+              {{ c.archived ? "已归档" : "正常" }}
+            </span>
+          </td>
+          <td>
+            <button class="sm" @click="editCourse(c)">
+              <Icon name="edit" :size="14" />编辑
+            </button>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -284,29 +362,45 @@ onMounted(load);
         <tr>
           <th>课程 / ID</th>
           <th>教师</th>
-          <th>时间</th>
-          <th>人数</th>
+          <th>上课时间</th>
+          <th>人数 / 容量</th>
+          <th>候补</th>
           <th>操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="s in sections" :key="s.id">
           <td>
-            {{ s.course.name }}<small>教学班 #{{ s.id }}</small>
+            <strong>{{ s.course.name }}</strong>
+            <small>教学班 #{{ s.id }}</small>
           </td>
           <td>{{ s.teacher }}</td>
           <td>{{ meetingText(s.meetings) }}</td>
-          <td>{{ s.enrolled_count }} / {{ s.capacity }}</td>
+          <td class="cap-col">
+            <span>{{ s.enrolled_count }} / {{ s.capacity }}</span>
+            <div class="meter sm" :class="fillLevel(s.enrolled_count, s.capacity)">
+              <span
+                :style="{
+                  width: `${Math.min(100, (s.enrolled_count / Math.max(1, s.capacity)) * 100)}%`,
+                }"
+              ></span>
+            </div>
+          </td>
+          <td>
+            <span v-if="s.waitlist_count" class="badge amber">{{ s.waitlist_count }} 人</span>
+            <span v-else class="muted small">0</span>
+          </td>
           <td class="actions">
-            <button @click="editSection(s)">编辑</button
-            ><button :disabled="busy" @click="showRoster(s.id)">名单</button
-            ><button :disabled="busy" @click="exportCsv(s.id)">CSV</button>
+            <button class="sm" @click="editSection(s)">编辑</button>
+            <button class="sm" :disabled="busy" @click="showRoster(s.id)">名单</button>
+            <button class="sm" :disabled="busy" @click="exportCsv(s.id)">CSV</button>
           </td>
         </tr>
       </tbody>
     </table>
     <p v-if="!total && !error" class="empty">暂无数据</p>
   </div>
+
   <div class="pagination">
     <button
       :disabled="page <= 1 || loading"
@@ -315,18 +409,20 @@ onMounted(load);
         load();
       "
     >
-      上一页</button
-    ><span>第 {{ page }} 页 / 共 {{ total }} 条</span
-    ><button
+      <Icon name="chevron-left" :size="15" />上一页
+    </button>
+    <span class="muted small">第 {{ page }} 页 / 共 {{ total }} 条</span>
+    <button
       :disabled="page * 20 >= total || loading"
       @click="
         page++;
         load();
       "
     >
-      下一页
+      下一页<Icon name="chevron-right" :size="15" />
     </button>
   </div>
+
   <div v-if="editing" class="modal-backdrop">
     <form
       class="modal wide"
@@ -336,18 +432,15 @@ onMounted(load);
       @submit.prevent="save"
     >
       <h2 id="edit-title">
-        {{ editId ? "编辑" : "新建"
-        }}{{ editing === "course" ? "课程" : "教学班" }}
+        {{ editId ? "编辑" : "新建" }}{{ editing === "course" ? "课程" : "教学班" }}
       </h2>
       <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-      <template v-if="editing === 'course'"
-        ><label
-          >课程号<input
-            v-model="courseForm.code"
-            required
-            maxlength="20" /></label
-        ><label
-          >课程名<input v-model="courseForm.name" required maxlength="100"
+      <template v-if="editing === 'course'">
+        <label
+          >课程号<input v-model="courseForm.code" required maxlength="20" placeholder="如 CS401"
+        /></label>
+        <label
+          >课程名<input v-model="courseForm.name" required maxlength="100" placeholder="请输入课程名称"
         /></label>
         <div class="form-row">
           <label
@@ -356,8 +449,9 @@ onMounted(load);
               type="number"
               min="1"
               max="10"
-              required /></label
-          ><label v-if="!editId"
+              required
+          /></label>
+          <label v-if="!editId"
             >院系 ID<input
               v-model.number="courseForm.dept_id"
               type="number"
@@ -366,28 +460,29 @@ onMounted(load);
           /></label>
         </div>
         <label v-if="editId" class="inline"
-          ><input
-            v-model="courseForm.archived"
-            type="checkbox"
-          />归档课程</label
-        ></template
-      ><template v-else
-        ><div v-if="!editId" class="form-row">
+          ><input v-model="courseForm.archived" type="checkbox" />归档课程</label
+        >
+      </template>
+      <template v-else>
+        <div v-if="!editId" class="form-row">
           <label
             >课程 ID<input
               v-model.number="sectionForm.course_id"
               type="number"
               min="1"
-              required /></label
-          ><label>学期<input v-model="sectionForm.term" required /></label>
+              required
+          /></label>
+          <label>学期<input v-model="sectionForm.term" required /></label>
         </div>
         <div class="form-row">
           <label
             >授课教师<input
               v-model="sectionForm.teacher"
               required
-              maxlength="50" /></label
-          ><label
+              maxlength="50"
+              placeholder="如 张教授"
+          /></label>
+          <label
             >容量<input
               v-model.number="sectionForm.capacity"
               type="number"
@@ -407,23 +502,27 @@ onMounted(load);
               type="number"
               min="1"
               max="7"
-              required /></label
-          ><label
+              required
+          /></label>
+          <label
             >开始节次<input
               v-model.number="m.start_period"
               type="number"
               min="1"
               max="12"
-              required /></label
-          ><label
+              required
+          /></label>
+          <label
             >结束节次<input
               v-model.number="m.end_period"
               type="number"
               min="1"
               max="12"
-              required /></label
-          ><button
+              required
+          /></label>
+          <button
             type="button"
+            class="danger sm"
             :disabled="sectionForm.meetings.length === 1"
             @click="sectionForm.meetings.splice(i, 1)"
           >
@@ -432,6 +531,7 @@ onMounted(load);
         </div>
         <button
           type="button"
+          class="sm"
           @click="
             sectionForm.meetings.push({
               weekday: 1,
@@ -440,18 +540,20 @@ onMounted(load);
             })
           "
         >
-          添加时间段
-        </button></template
-      >
+          <Icon name="plus" :size="14" />添加时间段
+        </button>
+      </template>
       <div class="actions end">
         <button type="button" :disabled="busy" @click="editing = undefined">
-          取消</button
-        ><button class="primary" :disabled="busy">
+          取消
+        </button>
+        <button class="primary" :disabled="busy">
           {{ busy ? "保存中…" : "保存" }}
         </button>
       </div>
     </form>
   </div>
+
   <div v-if="rosterId" class="modal-backdrop">
     <section
       class="modal wide"
@@ -473,9 +575,13 @@ onMounted(load);
           <tbody>
             <tr v-for="r in roster" :key="r.student_no">
               <td>{{ r.student_no }}</td>
-              <td>{{ r.name }}</td>
+              <td><strong>{{ r.name }}</strong></td>
               <td>{{ dateText(r.enrolled_at) }}</td>
-              <td>{{ r.source === "PROMOTED" ? "候补晋升" : "直接选课" }}</td>
+              <td>
+                <span class="badge" :class="r.source === 'PROMOTED' ? 'amber' : 'green'">
+                  {{ r.source === "PROMOTED" ? "候补晋升" : "直接选课" }}
+                </span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -485,9 +591,10 @@ onMounted(load);
           :disabled="rosterPage <= 1 || busy"
           @click="showRoster(rosterId!, rosterPage - 1)"
         >
-          上一页</button
-        ><span>{{ rosterPage }} / 共 {{ rosterTotal }} 人</span
-        ><button
+          上一页
+        </button>
+        <span>{{ rosterPage }} / 共 {{ rosterTotal }} 人</span>
+        <button
           :disabled="rosterPage * 20 >= rosterTotal || busy"
           @click="showRoster(rosterId!, rosterPage + 1)"
         >
@@ -495,8 +602,10 @@ onMounted(load);
         </button>
       </div>
       <div class="actions end">
-        <button :disabled="busy" @click="exportCsv(rosterId!)">导出 CSV</button
-        ><button @click="rosterId = undefined">关闭</button>
+        <button :disabled="busy" @click="exportCsv(rosterId!)">
+          <Icon name="download" :size="15" />导出 CSV
+        </button>
+        <button class="primary" @click="rosterId = undefined">关闭</button>
       </div>
     </section>
   </div>
