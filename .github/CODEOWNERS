@@ -1,0 +1,18 @@
+# 目录负责人（同 docs/03_五人分工与排期.md 与 docs/04_协作规范_Git与PR.md）
+# 请将下方 @A ~ @E 替换为实际 GitHub 用户名后再启用强制审查
+
+/backend/app/services/enrollment/ @A
+/backend/app/services/conflict.py @A
+/backend/app/services/promotion.py @A
+/backend/app/routers/enrollments.py @A
+/backend/app/routers/stats.py @E
+/backend/app/schemas/ @C
+/backend/app/core/ @C
+/sql/ @B
+/bench/ @B
+/alembic/ @B
+/docker-compose.yml @B
+/.github/ @B
+/frontend/src/views/ @D
+/frontend/src/components/ @E
+/docs/ @E

@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  sql-check:
+    name: SQL Schema, Seed, Reset & Reconcile
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cs
+          POSTGRES_PASSWORD: cs
+          POSTGRES_DB: course_select
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U cs -d course_select"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run 01_schema.sql and 02_seed.sql
+        env:
+          PGPASSWORD: cs
+        run: |
+          psql -h localhost -U cs -d course_select -v ON_ERROR_STOP=1 -f sql/01_schema.sql
+          psql -h localhost -U cs -d course_select -v ON_ERROR_STOP=1 -f sql/02_seed.sql
+
+      - name: Verify seed row counts
+        env:
+          PGPASSWORD: cs
+        run: |
+          psql -h localhost -U cs -d course_select -v ON_ERROR_STOP=1 -c "
+            DO \$\$
+            BEGIN
+              IF (SELECT COUNT(*) FROM users) <> 2001 THEN
+                RAISE EXCEPTION 'expected 2001 users';
+              END IF;
+              IF (SELECT COUNT(*) FROM courses) <> 200 THEN
+                RAISE EXCEPTION 'expected 200 courses';
+              END IF;
+              IF (SELECT COUNT(*) FROM sections) <> 200 THEN
+                RAISE EXCEPTION 'expected 200 sections';
+              END IF;
+              IF (SELECT COUNT(*) FROM section_meetings) <> 300 THEN
+                RAISE EXCEPTION 'expected 300 section_meetings';
+              END IF;
+            END \$\$;
+          "
+
+      - name: Verify reconcile.sql returns zero drift
+        env:
+          PGPASSWORD: cs
+        run: |
+          OUT=$(psql -h localhost -U cs -d course_select -t -A -v ON_ERROR_STOP=1 -f bench/reconcile.sql)
+          if [ -n "$OUT" ]; then
+            echo "Reconcile found issues:"
+            echo "$OUT"
+            exit 1
+          fi
+
+      - name: Run 03_reset.sql and re-verify reconcile.sql
+        env:
+          PGPASSWORD: cs
+        run: |
+          psql -h localhost -U cs -d course_select -v ON_ERROR_STOP=1 -f sql/03_reset.sql
+          OUT=$(psql -h localhost -U cs -d course_select -t -A -v ON_ERROR_STOP=1 -f bench/reconcile.sql)
+          if [ -n "$OUT" ]; then
+            echo "Reconcile after reset found issues:"
+            echo "$OUT"
+            exit 1
+          fi
+
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pytest (when backend/ exists)
+        run: |
+          if [ ! -f backend/pyproject.toml ]; then
+            echo "backend/pyproject.toml not created yet, skipping."
+            exit 0
+          fi
+          python3 -m pip install -e ./backend[dev]
+          pytest backend/tests/unit -x -q
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build frontend (when frontend/ exists)
+        run: |
+          if [ ! -f frontend/package.json ]; then
+            echo "frontend/package.json not created yet, skipping."
+            exit 0
+          fi
+          cd frontend && npm ci && npm run build
