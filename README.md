@@ -2,7 +2,19 @@
 
 高级数据库系统课程项目。系统覆盖选课防超卖、候补与退课晋升、课表冲突检测、教务管理和统计报表。实验重点是比较 PostgreSQL 并发控制、事务隔离级别和索引对正确性及性能的影响。
 
-计划使用 FastAPI、Vue 3、PostgreSQL 16、Redis 和 k6。当前仓库包含设计文档、建表与种子 SQL、压测和对账脚本。后端、前端和 Docker Compose 配置待实现，k6 脚本需要可用的 API 和测试账号。种子脚本中的账号和凭据为本地测试示例，密码哈希待替换。
+计划使用 FastAPI、Vue 3、PostgreSQL 16、Redis 和 k6。当前仓库包含设计文档、建表与种子 SQL、压测和对账脚本，以及杨帆负责的 Vue 3 学生端和教务管理前端。后端和 Docker Compose 配置待实现，k6 脚本需要可用的 API 和测试账号。种子脚本中的账号和凭据为本地测试示例，密码哈希待替换。
+
+## 前端运行（杨帆）
+
+在 Windows PowerShell 中：
+
+```powershell
+cd frontend
+npm ci
+npm run dev:mock
+```
+
+打开 `http://127.0.0.1:5173`。Mock 学生账号 `S0001`、`S0002`，管理员 `admin`，演示密码均为 `Passw0rd!`。真实 API 模式运行 `npm run dev`，默认代理至 `http://localhost:8000`；生产构建为 `npm run build`。详细页面、测试和联调限制见 [frontend/README.md](frontend/README.md)。
 
 ## 五人分工
 
