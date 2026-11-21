@@ -76,8 +76,7 @@ CREATE TABLE enrollments (
 CREATE UNIQUE INDEX uq_enrollments_active
     ON enrollments (student_id, section_id)
     WHERE status = 'ACTIVE';
--- 班级名单 / 晋升扫描
-CREATE INDEX idx_enrollments_section_status ON enrollments (section_id, status);
+-- 注：idx_enrollments_section_status 故意不在基线中创建，留作第 2 周 EXPLAIN 索引优化对比实验（见 docs/01_技术设计文档.md 4.3 & 9.3）
 
 -- ---------- 候选队列 ----------
 CREATE TABLE waitlist_entries (

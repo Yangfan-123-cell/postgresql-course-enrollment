@@ -1,0 +1,82 @@
+# 本地开发与压测环境
+# 默认启动数据库（PostgreSQL 16 + pg_stat_statements）和 Redis 7：
+#   docker compose up -d
+# 等 backend/ 与 frontend/ 代码就绪后，可用全栈模式启动：
+#   docker compose --profile full up -d --build
+
+services:
+  pg:
+    image: postgres:16-alpine
+    container_name: cs_pg
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cs}
+      POSTGRES_DB: ${POSTGRES_DB:-course_select}
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./sql/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./sql/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ./sql:/workspace/sql:ro
+      - ./bench:/workspace/bench:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs} -d ${POSTGRES_DB:-course_select}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cs_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 以下服务在 backend/ 和 frontend/ 就绪后通过 --profile full 启动
+  api:
+    profiles: ["full"]
+    build:
+      context: ./backend
+    container_name: cs_api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://cs:cs@pg:5432/course_select}
+      DATABASE_ISOLATION: ${DATABASE_ISOLATION:-READ_COMMITTED}
+      ENROLLMENT_STRATEGY: ${ENROLLMENT_STRATEGY:-atomic}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-at-least-32-bytes-long}
+      ENV: ${ENV:-dev}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      pg:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./frontend
+    container_name: cs_web
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  pg_data:

@@ -1,0 +1,41 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node / 前端
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/test-results/
+frontend/.env.local
+frontend/.env.*.local
+npm-debug.log*
+pnpm-debug.log*
+
+# 临时日志与导出文件（bench/results 下的实验结果 JSON 允许入库）
+*.log
+*.dump
+*.sql.gz
+*.tar.gz
+*.zip
