@@ -26,13 +26,19 @@ else
 fi
 
 echo "== 2. Backend pytest (if backend/ exists) =="
-if [ -f backend/pyproject.toml ] && "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -q '^api$'; then
-  "${COMPOSE[@]}" exec -T api pytest tests/unit -x -q
-  if git diff --name-only HEAD~1 2>/dev/null | grep -q 'services/enrollment'; then
-    "${COMPOSE[@]}" exec -T api pytest tests/integration/test_concurrency.py -x -q
+if [ -f backend/pyproject.toml ]; then
+  if "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -q '^api$'; then
+    "${COMPOSE[@]}" exec -T \
+      -e TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-cs}:${POSTGRES_PASSWORD:-cs}@pg:5432/${POSTGRES_DB:-course_select}}" \
+      api python -m pytest tests -x -q
+  elif [ -x backend/.venv/bin/python ]; then
+    TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-cs}:${POSTGRES_PASSWORD:-cs}@127.0.0.1:${PG_PORT:-5432}/${POSTGRES_DB:-course_select}}" \
+      backend/.venv/bin/python -m pytest backend/tests -x -q
+  else
+    echo "api container / backend/.venv not ready yet, skipping pytest"
   fi
 else
-  echo "backend/api not ready yet, skipping pytest"
+  echo "backend/pyproject.toml not created yet, skipping pytest"
 fi
 
 echo "== 3. Frontend build (if frontend/ exists) =="

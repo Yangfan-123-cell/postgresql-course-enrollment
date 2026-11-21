@@ -58,7 +58,7 @@ services:
       DATABASE_ISOLATION: ${DATABASE_ISOLATION:-READ_COMMITTED}
       ENROLLMENT_STRATEGY: ${ENROLLMENT_STRATEGY:-atomic}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-at-least-32-bytes-long}
       ENV: ${ENV:-dev}
     ports:
       - "${API_PORT:-8000}:8000"
